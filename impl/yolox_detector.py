@@ -102,7 +102,7 @@ class YOLOXDetector:
             total_loss = 0
             for batch_idx, (images, targets) in enumerate(train_loader):
                 images = images.to(device)
-                targets = targets.to(device)
+                targets = [t.to(device) for t in targets]  # Move each target tensor to device
                 
                 optimizer.zero_grad()
                 outputs = self.model(images)
@@ -177,12 +177,12 @@ class YOLOXLoss(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         
-    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def forward(self, predictions: torch.Tensor, targets: List[torch.Tensor]) -> torch.Tensor:
         """
         Compute YOLOX loss
         Args:
             predictions: Model predictions
-            targets: Ground truth targets
+            targets: List of ground truth target tensors
         Returns:
             Total loss
         """
@@ -190,22 +190,24 @@ class YOLOXLoss(nn.Module):
         # This is a simplified version - you might want to add more sophisticated loss components
         loss = 0
         
-        # Classification loss
-        cls_loss = F.binary_cross_entropy_with_logits(
-            predictions[..., 5:], targets[..., 5:]
-        )
-        loss += cls_loss
+        # Process each target in the batch
+        for pred, target in zip(predictions, targets):
+            # Classification loss
+            cls_loss = F.binary_cross_entropy_with_logits(
+                pred[..., 5:], target[..., 5:]
+            )
+            loss += cls_loss
+            
+            # Box regression loss
+            box_loss = F.smooth_l1_loss(
+                pred[..., :4], target[..., :4]
+            )
+            loss += box_loss
+            
+            # Objectness loss
+            obj_loss = F.binary_cross_entropy_with_logits(
+                pred[..., 4], target[..., 4]
+            )
+            loss += obj_loss
         
-        # Box regression loss
-        box_loss = F.smooth_l1_loss(
-            predictions[..., :4], targets[..., :4]
-        )
-        loss += box_loss
-        
-        # Objectness loss
-        obj_loss = F.binary_cross_entropy_with_logits(
-            predictions[..., 4], targets[..., 4]
-        )
-        loss += obj_loss
-        
-        return loss 
+        return loss / len(targets)  # Average loss across batch 
