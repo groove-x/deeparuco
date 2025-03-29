@@ -3,7 +3,7 @@ import os
 import torch
 from torch.utils.data import DataLoader
 from impl.yolox_detector import YOLOXDetector
-from impl.yolox_dataset import YOLOXDataset
+from impl.yolox_dataset import YOLOXDataset, collate_fn
 
 def main():
     parser = argparse.ArgumentParser(description='DeepArUco++ detector trainer with YOLOX')
@@ -21,8 +21,8 @@ def main():
 
     # Create dataset and dataloader
     train_dataset = YOLOXDataset(
-        image_dir=os.path.join(args.source_dir, 'train/images'),
-        label_dir=os.path.join(args.source_dir, 'train/labels')
+        image_dir=os.path.join(args.source_dir, 'images'),
+        label_dir=os.path.join(args.source_dir, 'labels')
     )
     
     train_loader = DataLoader(
@@ -30,7 +30,8 @@ def main():
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=4,
-        pin_memory=True
+        pin_memory=True,
+        collate_fn=collate_fn
     )
 
     # Initialize model

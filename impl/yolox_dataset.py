@@ -5,6 +5,26 @@ import cv2
 import numpy as np
 from typing import List, Tuple, Optional
 
+def collate_fn(batch):
+    """
+    Custom collate function to handle batches with different numbers of targets
+    Args:
+        batch: List of tuples (image, target)
+    Returns:
+        Tuple of (batched_images, batched_targets)
+    """
+    images = []
+    targets = []
+    for img, tgt in batch:
+        images.append(img)
+        targets.append(tgt)
+    
+    # Stack images (they are all the same size)
+    images = torch.stack(images, dim=0)
+    
+    # Return as is (don't stack targets as they have different sizes)
+    return images, targets
+
 class YOLOXDataset(Dataset):
     def __init__(self, image_dir: str, label_dir: str, transform: Optional[bool] = True):
         """
@@ -35,19 +55,22 @@ class YOLOXDataset(Dataset):
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
-        # Load label
+        # Load labels
         label_path = os.path.join(self.label_dir, 
                                  os.path.splitext(self.image_files[idx])[0] + '.txt')
+        labels = []
         if os.path.exists(label_path):
             with open(label_path, 'r') as f:
-                label = f.read().strip().split()
-                label = [float(x) for x in label]
-        else:
-            label = [0, 0, 0, 0, 0]  # Default to no object
+                for line in f:
+                    label = [float(x) for x in line.strip().split()]
+                    labels.append(label)
+        
+        if not labels:
+            labels = [[0, 0, 0, 0, 0]]  # Default to no object
             
         # Convert to tensor
         image = torch.from_numpy(image).float().permute(2, 0, 1) / 255.0
-        target = torch.tensor(label)
+        target = torch.tensor(labels)
         
         # Apply data augmentation if enabled
         if self.transform:
@@ -60,7 +83,7 @@ class YOLOXDataset(Dataset):
         Apply data augmentation
         Args:
             image: Input image tensor
-            target: Target tensor
+            target: Target tensor containing multiple labels
         Returns:
             Augmented image and target
         """
@@ -68,7 +91,7 @@ class YOLOXDataset(Dataset):
         if np.random.random() < 0.5:
             image = torch.flip(image, [2])
             if len(target) > 0:
-                target[1] = 1 - target[1]  # Flip x coordinate
+                target[:, 1] = 1 - target[:, 1]  # Flip x coordinate for all boxes
         
         # Random brightness and contrast
         if np.random.random() < 0.5:
