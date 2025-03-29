@@ -53,8 +53,9 @@ if __name__ == "__main__":
     regressor = load_model(
         f"{model_dir}/{args.regressor}.h5",
         custom_objects={"weighted_loss": weighted_loss},
+        compile=False
     )
-    decoder = load_model(f"{model_dir}/dec_new.h5")
+    decoder = load_model(f"{model_dir}/dec_new.h5", compile=False)
 
     # Use graph execution for tf models
 
