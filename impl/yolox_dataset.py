@@ -21,6 +21,7 @@ def collate_fn(batch):
     
     # Stack images (they are all the same size)
     images = torch.stack(images, dim=0)
+    print(f"Batch image shape: {images.shape}")  # Debug print
     
     # Return as is (don't stack targets as they have different sizes)
     return images, targets
@@ -91,6 +92,7 @@ class YOLOXDataset(Dataset):
             
         # Convert to tensor
         image = torch.from_numpy(new_image).float().permute(2, 0, 1) / 255.0
+        print(f"Single image shape: {image.shape}")  # Debug print
         target = torch.tensor(labels)
         
         # Apply data augmentation if enabled
