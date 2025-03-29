@@ -2,6 +2,7 @@ import argparse
 import os
 import cv2
 import numpy as np
+import torch
 from impl.yolox_detector import YOLOXDetector
 
 def main():
