@@ -79,13 +79,18 @@ class YOLOXDataset(Dataset):
             with open(label_path, 'r') as f:
                 for line in f:
                     label = [float(x) for x in line.strip().split()]
+                    # Adjust label coordinates for resizing and padding
+                    label[1] = (label[1] * w * scale + offset_x) / self.img_size  # x_center
+                    label[2] = (label[2] * h * scale + offset_y) / self.img_size  # y_center
+                    label[3] = label[3] * w * scale / self.img_size  # width
+                    label[4] = label[4] * h * scale / self.img_size  # height
                     labels.append(label)
         
         if not labels:
             labels = [[0, 0, 0, 0, 0]]  # Default to no object
             
         # Convert to tensor
-        image = torch.from_numpy(image).float().permute(2, 0, 1) / 255.0
+        image = torch.from_numpy(new_image).float().permute(2, 0, 1) / 255.0
         target = torch.tensor(labels)
         
         # Apply data augmentation if enabled
