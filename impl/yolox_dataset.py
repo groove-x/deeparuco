@@ -26,17 +26,20 @@ def collate_fn(batch):
     return images, targets
 
 class YOLOXDataset(Dataset):
-    def __init__(self, image_dir: str, label_dir: str, transform: Optional[bool] = True):
+    def __init__(self, image_dir: str, label_dir: str, transform: Optional[bool] = True, 
+                 img_size: int = 640):
         """
         Initialize YOLOX dataset
         Args:
             image_dir: Directory containing images
             label_dir: Directory containing labels
             transform: Whether to apply data augmentation
+            img_size: Target image size (both width and height)
         """
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.transform = transform
+        self.img_size = img_size
         self.image_files = [f for f in os.listdir(image_dir) if f.endswith(('.jpg', '.jpeg', '.png'))]
         
     def __len__(self) -> int:
@@ -54,6 +57,19 @@ class YOLOXDataset(Dataset):
         img_path = os.path.join(self.image_dir, self.image_files[idx])
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Resize image
+        h, w = image.shape[:2]
+        scale = min(self.img_size / w, self.img_size / h)
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        image = cv2.resize(image, (new_w, new_h))
+        
+        # Create a square image with padding
+        new_image = np.zeros((self.img_size, self.img_size, 3), dtype=np.uint8)
+        offset_x = (self.img_size - new_w) // 2
+        offset_y = (self.img_size - new_h) // 2
+        new_image[offset_y:offset_y + new_h, offset_x:offset_x + new_w] = image
         
         # Load labels
         label_path = os.path.join(self.label_dir, 
