@@ -83,22 +83,33 @@ class YOLOXDataset(Dataset):
         if os.path.exists(label_path):
             with open(label_path, 'r') as f:
                 for line in f:
-                    # Each line format: class_id x_center y_center width height
-                    label = [float(x) for x in line.strip().split()]
-                    
-                    # Adjust coordinates for resizing and padding
-                    x_center = (label[1] * w0 * scale + offset_x) / self.img_size
-                    y_center = (label[2] * h0 * scale + offset_y) / self.img_size
-                    width = label[3] * w0 * scale / self.img_size
-                    height = label[4] * h0 * scale / self.img_size
-                    
-                    # Clip coordinates to [0, 1]
-                    x_center = np.clip(x_center, 0, 1)
-                    y_center = np.clip(y_center, 0, 1)
-                    width = np.clip(width, 0, 1)
-                    height = np.clip(height, 0, 1)
-                    
-                    labels.append([label[0], x_center, y_center, width, height])
+                    # Each line format: marker_id x y w h (in pixels)
+                    try:
+                        marker_id, x, y, w, h = map(float, line.strip().split())
+                        
+                        # Convert pixel coordinates to normalized coordinates
+                        x_center = x / w0
+                        y_center = y / h0
+                        width = w / w0
+                        height = h / h0
+                        
+                        # Adjust coordinates for resizing and padding
+                        x_center = (x_center * w0 * scale + offset_x) / self.img_size
+                        y_center = (y_center * h0 * scale + offset_y) / self.img_size
+                        width = width * w0 * scale / self.img_size
+                        height = height * h0 * scale / self.img_size
+                        
+                        # Clip coordinates to [0, 1]
+                        x_center = np.clip(x_center, 0, 1)
+                        y_center = np.clip(y_center, 0, 1)
+                        width = np.clip(width, 0, 1)
+                        height = np.clip(height, 0, 1)
+                        
+                        # For YOLO training, we'll use 0 as the class ID for all markers
+                        labels.append([0, x_center, y_center, width, height])
+                    except ValueError as e:
+                        print(f"Warning: Skipping invalid line in {label_path}: {line.strip()}")
+                        continue
         
         # Convert to tensor
         image = torch.from_numpy(new_image).float().permute(2, 0, 1) / 255.0
