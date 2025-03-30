@@ -1,19 +1,110 @@
-# YOLOX Detector Implementation
+# YOLOX Implementation for ArUco Marker Detection
 
-This document describes the implementation of the YOLOX detector for ArUco marker detection in the DeepArUco++ project.
+This document describes the YOLOX implementation for detecting ArUco markers in images.
 
 ## Overview
 
-The YOLOX detector is implemented to provide a deep learning-based approach for detecting ArUco markers in images. The implementation includes:
+The implementation uses a YOLOX-based object detection model to detect ArUco markers in images. The model is designed to be efficient and accurate, with support for different model sizes (s, m, l, x).
 
-1. Dataset Generation
-2. Model Architecture
-3. Training Pipeline
-4. Inference
+## Model Architecture
 
-## Dataset Generation
+The YOLOX implementation includes:
 
-The dataset is generated using the COCO dataset as a base. The process involves:
+- A backbone network with multiple YOLOX blocks
+- A detection head for predicting bounding boxes and class scores
+- Support for different model sizes with varying channel depths and block counts
+- Grid-based prediction system with 3 anchors per grid cell
+
+## Dataset Structure
+
+The dataset should be organized as follows:
+```
+data/
+├── train/
+│   ├── images/
+│   └── labels/
+└── valid/
+    ├── images/
+    └── labels/
+```
+
+Each image should have a corresponding label file with the same name but `.txt` extension. Label files should contain one line per marker in the format:
+```
+0 <x_center> <y_center> <width> <height>
+```
+where all values are normalized to [0, 1].
+
+## Training
+
+To train the model:
+
+```bash
+python train_detector.py <source_dir> <run_name> [options]
+```
+
+Options:
+- `--model`: Model size (s, m, l, x) [default: s]
+- `--batch_size`: Batch size for training [default: 32]
+- `--epochs`: Number of training epochs [default: 100]
+- `--lr`: Learning rate [default: 0.01]
+- `--device`: Device to train on (cuda/cpu) [default: cuda if available]
+
+Example:
+```bash
+python train_detector.py data/flyingaruco yolox_model --model s --batch_size 32 --epochs 100
+```
+
+The training process includes:
+- Training and validation phases
+- Automatic saving of the best model based on validation loss
+- Progress tracking with loss values for both phases
+
+## Inference
+
+To run inference on images:
+
+```bash
+python test_detector.py <model_dir> <image_dir> [options]
+```
+
+Options:
+- `--output_dir`: Directory to save results [default: results]
+- `--conf_threshold`: Confidence threshold for detections [default: 0.5]
+- `--device`: Device to run inference on [default: cuda if available]
+
+Example:
+```bash
+python test_detector.py yolox_model data/test/images --output_dir results
+```
+
+## Model Output
+
+The model outputs bounding boxes for detected markers in the format:
+- `x1, y1, x2, y2`: Coordinates of the bounding box
+- Confidence score for each detection
+
+## Implementation Details
+
+### Loss Function
+The YOLOX loss combines:
+- Box regression loss (Smooth L1)
+- Objectness loss (Binary Cross Entropy)
+- Classification loss (Binary Cross Entropy)
+
+### Data Augmentation
+The dataset includes:
+- Random horizontal flips
+- Random brightness adjustments
+- Proper image resizing and padding
+- Coordinate normalization
+
+### Model Architecture
+- Initial convolution layer
+- Multiple YOLOX blocks with residual connections
+- Detection head with 3 anchors per grid cell
+- Support for different model sizes with varying channel depths
+
+## Current Status
 
 1. **Source Images**: Using COCO train2017 dataset images
 2. **Marker Generation**: Adding ArUco markers to images with:
