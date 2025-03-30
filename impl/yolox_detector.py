@@ -88,24 +88,29 @@ class YOLOXDetector:
         
         return nn.Sequential(*layers)
     
-    def train(self, train_loader: DataLoader, num_epochs: int = 100, 
-              learning_rate: float = 0.01, device: str = 'cuda'):
+    def train(self, train_loader: DataLoader, valid_loader: DataLoader, num_epochs: int = 100, 
+              learning_rate: float = 0.01, device: str = 'cuda', save_dir: str = None):
         """
         Train the model
         Args:
             train_loader: DataLoader for training data
+            valid_loader: DataLoader for validation data
             num_epochs: Number of training epochs
             learning_rate: Learning rate
             device: Device to train on ('cuda' or 'cpu')
+            save_dir: Directory to save model checkpoints
         """
         self.model.to(device)
         optimizer = torch.optim.SGD(self.model.parameters(), lr=learning_rate, momentum=0.9)
         criterion = self._build_loss()
         criterion.to(device)
         
+        best_valid_loss = float('inf')
+        
         for epoch in range(num_epochs):
+            # Training phase
             self.model.train()
-            total_loss = 0
+            total_train_loss = 0
             for batch_idx, (images, targets) in enumerate(train_loader):
                 print(f"Input image shape: {images.shape}")  # Debug print
                 images = images.to(device)
@@ -123,13 +128,38 @@ class YOLOXDetector:
                 loss.backward()
                 optimizer.step()
                 
-                total_loss += loss.item()
+                total_train_loss += loss.item()
                 
                 if batch_idx % 10 == 0:
-                    print(f'Epoch: {epoch}, Batch: {batch_idx}, Loss: {loss.item():.4f}')
+                    print(f'Epoch: {epoch}, Batch: {batch_idx}, Train Loss: {loss.item():.4f}')
             
-            avg_loss = total_loss / len(train_loader)
-            print(f'Epoch {epoch} completed. Average Loss: {avg_loss:.4f}')
+            avg_train_loss = total_train_loss / len(train_loader)
+            
+            # Validation phase
+            self.model.eval()
+            total_valid_loss = 0
+            with torch.no_grad():
+                for images, targets in valid_loader:
+                    images = images.to(device)
+                    targets = [t.to(device) for t in targets]
+                    
+                    outputs = self.model(images)
+                    B, _, H, W = outputs.shape
+                    outputs = outputs.view(B, 3, -1, H, W).permute(0, 1, 3, 4, 2)
+                    
+                    loss = criterion(outputs, targets)
+                    total_valid_loss += loss.item()
+            
+            avg_valid_loss = total_valid_loss / len(valid_loader)
+            
+            print(f'Epoch {epoch} completed. Train Loss: {avg_train_loss:.4f}, Valid Loss: {avg_valid_loss:.4f}')
+            
+            # Save best model
+            if save_dir and avg_valid_loss < best_valid_loss:
+                best_valid_loss = avg_valid_loss
+                os.makedirs(save_dir, exist_ok=True)
+                torch.save(self.model.state_dict(), os.path.join(save_dir, 'best_model.pt'))
+                print(f'Saved best model with validation loss: {best_valid_loss:.4f}')
     
     def _build_loss(self) -> nn.Module:
         """Build YOLOX loss function"""
