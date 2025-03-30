@@ -133,9 +133,6 @@ if __name__ == '__main__':
                                 if random() > 0.5: 
                                     content *= cv2.resize(f(64, 64), (marker.shape[1], marker.shape[0]))
 
-                            #if random() > 0.5: content *= cv2.resize(lines(64, 64, randint(1, 3)), (marker.shape[1], marker.shape[0]))
-                            #if random() > 0.5: content *= cv2.resize(perlin(64, 64, randint(1, 3)), (marker.shape[1], marker.shape[0]))
-
                             mask = get_marker(250, size = m_size, border_width = 0)[0][:,:,3] / 255.0
                             content = (1 - mask) + content * mask
                             marker[:,:,:3] = np.clip(np.multiply(marker[:,:,:3], np.expand_dims(content, -1)), 0, 255)
@@ -198,58 +195,60 @@ if __name__ == '__main__':
                         markers[y:y + size, x:x + size] = marker
                         occupied[y:y + size, x:x + size] = full_border[:,:,3]
 
-                        if real == True:
-                            corners = [[c[0] + x, c[1] + y] for c in corners]
-                            all_corners.append(corners)
-                            rots.append(rot)
-                            ids.append(id)
+                        all_corners.append(corners)
+                        ids.append(id)
+                        rots.append(rot)
 
                         break
 
-            luma_f = gcd(width, height) #/ uniform(1.0, 2.0)
-            img_down = cv2.resize(cv2.resize(pic, (0, 0), fx = 1 / luma_f, fy = 1 / luma_f, interpolation = cv2.INTER_AREA), 
-                                  (pic.shape[1], pic.shape[0]), interpolation = cv2.INTER_LANCZOS4)
-            
-            luma_down = cv2.cvtColor(img_down, cv2.COLOR_BGR2GRAY) / 255.0
-            color_down = img_down / (np.repeat(luma_down[:,:,np.newaxis], 3, axis = 2) + 1e-6)
+            if len(all_corners) > 0:
 
-            centerx, centery = pic.shape[1]//2, pic.shape[0]//2
-            result = np.zeros(pic.shape, dtype=np.float32)
-
-            reflect = random() * 0.5
-
-            for c in range(3):
-                result[:,:,c] = pic[:,:,c] * (1 - (markers[:,:,3] / 255.0))
+                # Overlay markers
 
                 if args.luma:
-                    result[:,:,c] += (markers[:,:,c] * luma_down) * (markers[:,:,3] / 255.0)
-                else:
-                    result[:,:,c] += markers[:,:,c] * (markers[:,:,3] / 255.0)
+                    luma = cv2.cvtColor(pic, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+                    luma = np.expand_dims(luma, -1)
+                    luma = np.repeat(luma, 3, axis = 2)
+                    markers[:,:,:3] = np.clip(markers[:,:,:3] * luma, 0, 255)
 
                 if args.reflections:
-                    result[:,:,c] += reflect * (1 - markers[:,:,c] / 255.0) * img_down[:,:,c] * (markers[:,:,3] / 255.0)
+                    mask = markers[:,:,3] / 255.0
+                    mask = np.expand_dims(mask, -1)
+                    mask = np.repeat(mask, 3, axis = 2)
+                    pic = pic * (1 - mask) + markers[:,:,:3] * mask
 
-            #if args.blur and random() < 0.2:
-            #    kernel_size = randint(1, 7) * 2 + 1
-            #    result = cv2.GaussianBlur(result, (kernel_size, kernel_size), 0)
-                      
-            cv2.imwrite(output_dir + f'/{basename(path).split(".")[0]}.jpg', np.clip(result, 0, 255).astype(np.uint8))
-            
-            # Dump to .json file
+                else:
+                    mask = markers[:,:,3] / 255.0
+                    mask = np.expand_dims(mask, -1)
+                    mask = np.repeat(mask, 3, axis = 2)
+                    pic = pic * (1 - mask) + markers[:,:,:3] * mask
 
-            data = {}
-            data['markers'] = []
-            
-            assert len(ids) == len(all_corners)
-            
-            for i in range(len(ids)):
-                marker = {}
-                marker['id'] = ids[i]
-                marker['corners'] = all_corners[i]
-                marker['rot'] = rots[i]
-                data['markers'].append(marker)
+                # Save image
 
-            with open(output_dir + f'/{basename(path).split(".")[0]}.json', 'w') as f:
-                dump(data, f, indent = 4)
+                cv2.imwrite(f'{output_dir}/{basename(path)}', pic)
 
-            copy(f'{source_dir}/brightness.csv', f'{output_dir}/brightness.csv')
+                # Save labels
+
+                with open(f'{output_dir}/{basename(path)[:-4]}.txt', 'w') as f:
+
+                    for corners, id, rot in zip(all_corners, ids, rots):
+
+                        # YOLO format: <class> <x_center> <y_center> <width> <height>
+
+                        x_coords = [c[0] for c in corners]
+                        y_coords = [c[1] for c in corners]
+
+                        x_min, x_max = min(x_coords), max(x_coords)
+                        y_min, y_max = min(y_coords), max(y_coords)
+
+                        x_center = (x_min + x_max) / 2
+                        y_center = (y_min + y_max) / 2
+                        width = x_max - x_min
+                        height = y_max - y_min
+
+                        f.write(f'{id} {x_center} {y_center} {width} {height}\n')
+
+    # Copy brightness.csv if it exists
+    brightness_file = f'{source_dir}/brightness.csv'
+    if exists(brightness_file):
+        copy(brightness_file, f'{output_dir}/brightness.csv')
