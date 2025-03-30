@@ -104,10 +104,15 @@ torchvision==0.14.1
 tqdm==4.64.1
 traitlets==5.9.0
 typing_extensions @ file:///croot/typing_extensions_1669924550328/work
-ultralytics==8.0.147
+# ultralytics==8.0.147  # Removed as we're switching to YOLOX
 urllib3 @ file:///croot/urllib3_1673575502006/work
 wcwidth==0.2.6
 Werkzeug==2.2.2
 wrapt==1.14.1
 xmltodict==0.13.0
 zipp==3.12.0
+
+# YOLOX dependencies
+yolox==0.1.0
+torch>=1.7.0
+torchvision>=0.8.1

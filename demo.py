@@ -3,12 +3,15 @@ from argparse import ArgumentParser
 import cv2
 import numpy as np
 import tensorflow as tf
+import torch
 from impl.aruco import find_id
 from impl.heatmaps import pos_from_heatmap
 from impl.losses import weighted_loss
 from impl.utils import marker_from_corners, ordered_corners
 from tensorflow.keras.models import load_model
-from ultralytics import YOLO
+from yolox.exp import get_exp
+from yolox.utils import postprocess
+from yolox.data.data_augment import ValTransform
 
 norm = lambda x: (x - np.min(x)) / (np.max(x) - np.min(x) + 1e-9)
 
@@ -44,12 +47,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Paths
-
     model_dir = "./models"
 
     # Load models
-
-    detector = YOLO(f"{model_dir}/{args.detector}.pt")
+    exp = get_exp(None, "yolox-s")
+    detector = exp.get_model()
+    ckpt = torch.load(f"{model_dir}/{args.detector}.pth", map_location="cpu")
+    detector.load_state_dict(ckpt["model"])
+    detector.eval()
+    
     regressor = load_model(
         f"{model_dir}/{args.regressor}.h5",
         custom_objects={"weighted_loss": weighted_loss},
@@ -57,7 +63,6 @@ if __name__ == "__main__":
     decoder = load_model(f"{model_dir}/dec_new.h5")
 
     # Use graph execution for tf models
-
     @tf.function(reduce_retracing=True)
     def refine_corners(crops):
         return regressor(crops)
@@ -67,61 +72,69 @@ if __name__ == "__main__":
         return decoder(markers)
 
     # Load image
-
     pic = cv2.imread(args.pic_path)
+    img_info = {"id": 0}
+    img_info["file_name"] = args.pic_path
+    height, width = pic.shape[:2]
+    img_info["height"] = height
+    img_info["width"] = width
+    img_info["raw_img"] = pic
+
+    # Preprocess image for YOLOX
+    preproc = ValTransform(legacy=False)
+    img, _ = preproc(img_info, None, exp.input_size)
+    img = torch.from_numpy(img).unsqueeze(0)
+    img = img.float()
 
     # Detect markers
+    with torch.no_grad():
+        outputs = detector(img)
+        outputs = postprocess(
+            outputs, exp.num_classes, exp.test_conf,
+            exp.nmsthre, class_agnostic=True
+        )
+        detections = outputs[0].cpu()
 
-    detections = detector(pic, verbose=False, iou=0.5, conf=0.03)[0].cpu().boxes
-
-    # Expanded bboxes
-
-    xyxy = [
-        [
-            int(max(det[0] - (0.2 * (det[2] - det[0]) + 0.5), 0)),
-            int(max(det[1] - (0.2 * (det[3] - det[1]) + 0.5), 0)),
-            int(min(det[2] + (0.2 * (det[2] - det[0]) + 0.5), pic.shape[1] - 1)),
-            int(min(det[3] + (0.2 * (det[3] - det[1]) + 0.5), pic.shape[0] - 1)),
-        ]
-        for det in [
-            [int(val) for val in det.xyxy.cpu().numpy()[0]] for det in detections
-        ]
-    ]
+    # Convert YOLOX detections to same format as before
+    xyxy = []
+    for det in detections:
+        if det is None:
+            continue
+        x1, y1, x2, y2 = det[:, :4][0].numpy()
+        xyxy.append([
+            int(max(x1 - (0.2 * (x2 - x1) + 0.5), 0)),
+            int(max(y1 - (0.2 * (y2 - y1) + 0.5), 0)),
+            int(min(x2 + (0.2 * (x2 - x1) + 0.5), pic.shape[1] - 1)),
+            int(min(y2 + (0.2 * (y2 - y1) + 0.5), pic.shape[0] - 1)),
+        ])
 
     # Crop and normalize
-
     crops_ori = [
         cv2.resize(pic[det[1] : det[3], det[0] : det[2]], (64, 64)) for det in xyxy
     ]
 
     # Output crops
-
     if args.get_crops:
         for i in range(len(crops_ori)):
             cv2.imwrite(f"crop_{i}.png", crops_ori[i])
 
     # Normalize (if not baseline!)
-
     if args.regressor != "reg_baseline":
         crops = [norm(crop) for crop in crops_ori]
     else:
         crops = crops_ori.copy()
 
     # Refine corners
-
     corners = refine_corners(np.array(crops)).numpy()
 
     # Convert to (x, y) pairs
-
     if args.regressor.split("_")[1] == "hmap":
         # Output hmaps
-
         if args.get_heatmaps:
             for i in range(corners.shape[0]):
                 cv2.imwrite(f"map_{i}.png", norm(corners[i]) * 255)
 
         # Instantiate keypoint detector
-
         area = 75  # <- Expected area of the blobs to detect
         kp_params = cv2.SimpleBlobDetector_Params()
         if area > 0:
@@ -136,7 +149,6 @@ if __name__ == "__main__":
         ]
 
         # Discard detections if less than 4 corners
-
         keep = [len(cs) == 4 for cs in corners]
         xyxy, crops_ori, corners = zip(
             *[
@@ -150,20 +162,17 @@ if __name__ == "__main__":
         corners = [[(pred[i], pred[i + 1]) for i in range(0, 8, 2)] for pred in corners]
 
     # Ensure corners are ordered
-
     corners = [
         ordered_corners([c[0] for c in cs], [c[1] for c in cs]) for cs in corners
     ]
 
     # Extract markers from corners (if 4 corners available)
-
     markers = []
 
     for crop, cs in zip(crops_ori, corners):
         marker = marker_from_corners(crop, cs, 32)
 
         # Grayscale and normalize
-
         markers.append(norm(cv2.cvtColor(marker, cv2.COLOR_BGR2GRAY)))
 
     if args.get_markers:
@@ -171,13 +180,11 @@ if __name__ == "__main__":
             cv2.imwrite(f"marker_{i}.png", markers[i] * 255.0)
 
     # Get ids from markers
-
     decoder_out = np.round(decode_markers(np.array(markers)).numpy())
     ids, dists = zip(*[find_id(out) for out in decoder_out])
 
     # Visualize
-
-    line_width = 2  # Line width for drawing detections
+    line_width = 2
 
     for cs, det, id, dist in zip(corners, xyxy, ids, dists):
         # Pack 2-by-2
