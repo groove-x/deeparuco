@@ -24,7 +24,6 @@ def convert_corners_to_yolo(corners, img_width, img_height):
 def main():
     # Create output directories
     os.makedirs('data/train/labels', exist_ok=True)
-    os.makedirs('data/train/images', exist_ok=True)
     
     # Process each JSON file
     json_files = glob('data/train/*.json')
@@ -34,8 +33,13 @@ def main():
             data = json.load(f)
         
         # Get corresponding image
-        img_file = json_file.replace('.json', '.jpg')
+        img_file = os.path.join('data/train/images', 
+                               os.path.basename(json_file).replace('.json', '.jpg'))
         img = cv2.imread(img_file)
+        if img is None:
+            print(f"Warning: Could not read image {img_file}")
+            continue
+            
         img_height, img_width = img.shape[:2]
         
         # Create YOLO label file
@@ -50,9 +54,6 @@ def main():
                 # Write label (class_id x_center y_center width height)
                 # We use 0 as class_id since we only have one class (marker)
                 f.write(f"0 {' '.join([str(x) for x in bbox])}\n")
-        
-        # Move image to images directory
-        os.rename(img_file, os.path.join('data/train/images', os.path.basename(img_file)))
 
 if __name__ == '__main__':
     main() 
