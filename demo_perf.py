@@ -111,7 +111,8 @@ def main():
         return decoder(markers)
 
     # Load image
-    pic = cv2.imread("hornfront_0_0.12_0.95.jpeg")
+    pic = cv2.imread("gen_image.jpg")
+    pic_vis = pic.copy()  # Create a copy for visualization
 
     # Run multiple times for timing
     n_runs = 1000
@@ -134,23 +135,44 @@ def main():
             step_times[step].append(t)
             
         if i == 0:
-            print(f"First run (warmup): {total_time:.3f} seconds")
+            print(f"First run (warmup): {total_time*1000:.1f} ms")
+            # Visualize markers after first run
+            line_width = 2  # Line width for drawing detections
+            for cs, det, id, dist in zip(corners, xyxy, ids, dists):
+                # Pack 2-by-2
+                cs = [(cs[i], cs[i + 1]) for i in range(0, 8, 2)]
+                color = (0, 255, 0)  # Green for good detections
+                if dist >= 9:  # Using default threshold
+                    color = (0, 0, 255)  # Red for poor detections
+                width = det[2] - det[0]
+                height = det[3] - det[1]
+                for i in range(0, 4):
+                    p1 = (int(det[0] + cs[i][0] * width), int(det[1] + cs[i][1] * height))
+                    p2 = (int(det[0] + cs[(i + 1) % 4][0] * width),
+                          int(det[1] + cs[(i + 1) % 4][1] * height))
+                    pic_vis = cv2.line(pic_vis, p1, p2, color, line_width, cv2.LINE_AA)
+                # Add ID label
+                cv2.putText(pic_vis, f"ID: {id}", (det[0], det[1] - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            # Save visualization
+            cv2.imwrite("output_visualization.jpg", pic_vis)
+            print("Saved visualization to output_visualization.jpg")
         elif i < 10:  # Print first 10 runs after warmup
-            print(f"Run {i+1}: {total_time:.3f} seconds")
+            print(f"Run {i+1}: {total_time*1000:.1f} ms")
 
     # Calculate statistics (excluding first run)
     mean_time = np.mean(times[1:])
     std_time = np.std(times[1:])
     
     print(f"\nOverall Performance Statistics (excluding warmup):")
-    print(f"Mean execution time: {mean_time:.3f} seconds")
-    print(f"Standard deviation: {std_time:.3f} seconds")
+    print(f"Mean execution time: {mean_time*1000:.1f} ms")
+    print(f"Standard deviation: {std_time*1000:.1f} ms")
     
     print("\nDetailed Step Statistics (excluding warmup):")
     for step, t_list in step_times.items():
         mean_t = np.mean(t_list[1:])
         std_t = np.std(t_list[1:])
-        print(f"{step:20s}: mean={mean_t:.3f}s, std={std_t:.3f}s")
+        print(f"{step:20s}: mean={mean_t*1000:.1f}ms, std={std_t*1000:.1f}ms")
 
 if __name__ == "__main__":
     main() 
