@@ -250,6 +250,11 @@ if __name__ == '__main__':
                 data['markers'].append(marker)
 
             with open(output_dir + f'/{basename(path).split(".")[0]}.json', 'w') as f:
-                dump(data, f, indent = 4)
+                dump(data, f)
 
-            copy(f'{source_dir}/brightness.csv', f'{output_dir}/brightness.csv')
+    # Create empty brightness.csv if it doesn't exist
+    if not exists(f'{source_dir}/brightness.csv'):
+        with open(f'{output_dir}/brightness.csv', 'w') as f:
+            f.write('image,brightness\n')
+    else:
+        copy(f'{source_dir}/brightness.csv', f'{output_dir}/brightness.csv')
