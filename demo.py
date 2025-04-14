@@ -3,12 +3,15 @@ from argparse import ArgumentParser
 import cv2
 import numpy as np
 import tensorflow as tf
+import torch
 from impl.aruco import find_id
 from impl.heatmaps import pos_from_heatmap
 from impl.losses import weighted_loss
 from impl.utils import marker_from_corners, ordered_corners
 from tensorflow.keras.models import load_model
-from ultralytics import YOLO
+from yolox.data.data_augment import ValTransform
+from yolox.exp import get_exp
+from yolox.utils import fuse_model, postprocess
 
 norm = lambda x: (x - np.min(x)) / (np.max(x) - np.min(x) + 1e-9)
 
@@ -41,15 +44,58 @@ if __name__ == "__main__":
     parser.add_argument(
         "-m", "--get_markers", help="also return rectified markers", action="store_true"
     )
+    # YOLOX specific arguments
+    parser.add_argument("-n", "--name", type=str, default=None, help="model name")
+    parser.add_argument(
+        "-f",
+        "--exp_file",
+        default=None,
+        type=str,
+        help="experiment description file",
+    )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        type=str,
+        help="device to run model on (cpu/gpu)",
+    )
+    parser.add_argument("--conf", default=0.03, type=float, help="test conf")
+    parser.add_argument("--nms", default=0.5, type=float, help="test nms threshold")
+    parser.add_argument("--tsize", default=None, type=int, help="test img size")
+    parser.add_argument(
+        "--fp16",
+        dest="fp16",
+        default=False,
+        action="store_true",
+        help="Adopting mix precision evaluating.",
+    )
     args = parser.parse_args()
 
     # Paths
-
     model_dir = "./models"
 
     # Load models
+    exp = get_exp(args.exp_file, args.name)
+    if args.conf is not None:
+        exp.test_conf = args.conf
+    if args.nms is not None:
+        exp.nmsthre = args.nms
+    if args.tsize is not None:
+        exp.test_size = (args.tsize, args.tsize)
 
-    detector = YOLO(f"{model_dir}/{args.detector}.pt")
+    detector = exp.get_model()
+    if args.device == "gpu":
+        detector.cuda()
+        if args.fp16:
+            detector.half()
+    detector.eval()
+
+    # Load checkpoint
+    # ckpt_file = f"{model_dir}/{args.detector}.pth"
+    ckpt_file = "/Users/kohei/work/deeparuco/YOLOX/YOLOX_outputs/aruco_yolox_tiny/best_ckpt.pth"
+    ckpt = torch.load(ckpt_file, map_location="cpu")
+    detector.load_state_dict(ckpt["model"])
+
     regressor = load_model(
         f"{model_dir}/{args.regressor}.h5",
         custom_objects={"weighted_loss": weighted_loss},
@@ -67,15 +113,37 @@ if __name__ == "__main__":
         return decoder(markers)
 
     # Load image
-
     pic = cv2.imread(args.pic_path)
 
-    # Detect markers
+    # Prepare image for YOLOX
+    preproc = ValTransform(legacy=False)
+    img, _ = preproc(pic, None, exp.test_size)
+    img = torch.from_numpy(img).unsqueeze(0)
+    img = img.float()
+    if args.device == "gpu":
+        img = img.cuda()
+        if args.fp16:
+            img = img.half()
 
-    detections = detector(pic, verbose=False, iou=0.5, conf=0.03)[0].cpu().boxes
+    # Detect markers
+    with torch.no_grad():
+        outputs = detector(img)
+        outputs = postprocess(
+            outputs, exp.num_classes, exp.test_conf,
+            exp.nmsthre, class_agnostic=True
+        )
+
+    # Get detections
+    if outputs[0] is None:
+        print("No markers detected")
+        exit(0)
+    
+    detections = outputs[0].cpu()
+    ratio = min(exp.test_size[0] / pic.shape[0], exp.test_size[1] / pic.shape[1])
+    bboxes = detections[:, 0:4]
+    bboxes /= ratio  # Scale back to original image size
 
     # Expanded bboxes
-
     xyxy = [
         [
             int(max(det[0] - (0.2 * (det[2] - det[0]) + 0.5), 0)),
@@ -83,9 +151,7 @@ if __name__ == "__main__":
             int(min(det[2] + (0.2 * (det[2] - det[0]) + 0.5), pic.shape[1] - 1)),
             int(min(det[3] + (0.2 * (det[3] - det[1]) + 0.5), pic.shape[0] - 1)),
         ]
-        for det in [
-            [int(val) for val in det.xyxy.cpu().numpy()[0]] for det in detections
-        ]
+        for det in bboxes
     ]
 
     # Crop and normalize
