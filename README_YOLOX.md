@@ -2,7 +2,7 @@
 
 ## Create virtual environment
 ```bash
-python3.9 -m venv venv
+python3.8 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 pip install -r requirements_yolox.txt
@@ -19,5 +19,5 @@ pip-compile -o requirements_yolox.in YOLOX/requirements.txt
 
 ```bash
 python demo.py -f impl/yolox_tiny.py --ckpt ./YOLOX/YOLOX_outputs/aruco_yolox_tiny/best_ckpt.pth -c \
-    
+    examples/flyingaruco_1.jpg ./output.png
 ```
