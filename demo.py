@@ -53,14 +53,15 @@ if __name__ == "__main__":
         type=str,
         help="experiment description file",
     )
+    parser.add_argument("--ckpt", default=None, type=str, help="ckpt for eval")
     parser.add_argument(
         "--device",
         default="cpu",
         type=str,
         help="device to run model on (cpu/gpu)",
     )
-    parser.add_argument("--conf", default=0.03, type=float, help="test conf")
-    parser.add_argument("--nms", default=0.5, type=float, help="test nms threshold")
+    parser.add_argument("--conf", default=0.3, type=float, help="test conf")
+    parser.add_argument("--nms", default=0.3, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
         "--fp16",
@@ -92,7 +93,7 @@ if __name__ == "__main__":
 
     # Load checkpoint
     # ckpt_file = f"{model_dir}/{args.detector}.pth"
-    ckpt_file = "/Users/kohei/work/deeparuco/YOLOX/YOLOX_outputs/aruco_yolox_tiny/best_ckpt.pth"
+    ckpt_file = args.ckpt
     ckpt = torch.load(ckpt_file, map_location="cpu")
     detector.load_state_dict(ckpt["model"])
 
