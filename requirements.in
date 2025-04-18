@@ -1,0 +1,12 @@
+-c YOLOX/requirements.txt
+numpy>=1.24.1
+opencv-python>=4.7.0.68
+pandas>=1.5.3
+tensorflow>=2.11.0
+torch>=1.13.1
+torchvision>=0.14.1
+tqdm>=4.64.1
+scikit-learn>=1.2.1
+scikit-image>=0.19.3
+shapely>=2.0.1
+perlin-numpy @ git+https://github.com/pvigier/perlin-numpy@5e26837db14042e51166eb6cad4c0df2c1907016
