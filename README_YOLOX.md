@@ -32,6 +32,28 @@ python convert_to_coco.py <target flyingarucov2 path> <target coco path>
 
 ## Train YOLOX
 
+```python3
+class Exp(MyExp):
+    def __init__(self):
+        super(Exp, self).__init__()
+        self.depth = 0.33
+        self.width = 0.375
+        self.input_size = (416, 416)
+        self.mosaic_scale = (0.5, 1.5)
+        self.random_size = (10, 20)
+        self.test_size = (416, 416)
+        self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
+        self.enable_mixup = False
+
+        # Define dataset path
+        data_root = "<target coco path>"
+        self.data_dir = f"{data_root}/images"
+        self.train_ann = f"{data_root}/annotations/train_annotations.json"
+        self.val_ann = f"{data_root}/annotations/valid_annotations.json"
+ 
+        self.num_classes = 1
+```
+
 ```bash
-python YOLOX/tools/train.py -f YOLOX/exps/default/yolox_tiny.py -d 1 -b 16 --fp16 -c YOLOX/YOLOX_outputs/aruco_yolox_tiny/best_ckpt.pth
+python tools/train.py -f exps/default/yolox_tiny.py
 ```
