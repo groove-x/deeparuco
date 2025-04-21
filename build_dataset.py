@@ -9,7 +9,7 @@ from shutil import copy, rmtree
 
 import cv2
 import numpy as np
-from impl.aruco import get_marker
+from impl.aruco import get_marker, ARUCO_DICTIONARY_SIZE
 from impl.effects import rotate3d
 from impl.shadows import lines, perlin
 from tqdm import tqdm
@@ -118,7 +118,7 @@ if __name__ == '__main__':
 
                     if random() < 0.5: # Real markers
                         real = True
-                        id = randint(0, 249)
+                        id = randint(0, ARUCO_DICTIONARY_SIZE - 1)
                         marker, corners = get_marker(id, size = m_size, border_width = b_width)
 
                     else: # Fake markers
@@ -126,7 +126,7 @@ if __name__ == '__main__':
                         type_val = random()
 
                         if type_val < 0.8: # Designs
-                            marker, corners = get_marker(251, size = m_size, border_width = b_width)
+                            marker, corners = get_marker(ARUCO_DICTIONARY_SIZE + 1, size = m_size, border_width = b_width)
 
                             content = np.ones(marker.shape[:2])
                             for f in [lines, perlin]:
@@ -136,7 +136,7 @@ if __name__ == '__main__':
                             #if random() > 0.5: content *= cv2.resize(lines(64, 64, randint(1, 3)), (marker.shape[1], marker.shape[0]))
                             #if random() > 0.5: content *= cv2.resize(perlin(64, 64, randint(1, 3)), (marker.shape[1], marker.shape[0]))
 
-                            mask = get_marker(250, size = m_size, border_width = 0)[0][:,:,3] / 255.0
+                            mask = get_marker(ARUCO_DICTIONARY_SIZE, size = m_size, border_width = 0)[0][:,:,3] / 255.0
                             content = (1 - mask) + content * mask
                             marker[:,:,:3] = np.clip(np.multiply(marker[:,:,:3], np.expand_dims(content, -1)), 0, 255)
 
@@ -144,10 +144,10 @@ if __name__ == '__main__':
                             if random() > 0.5:
                                 b_width = 0
                                 fill_color = [0,0,0]
-                            marker, corners = get_marker(250, size = m_size, border_width = b_width)
+                            marker, corners = get_marker(ARUCO_DICTIONARY_SIZE, size = m_size, border_width = b_width)
 
                         else:
-                            id = randint(0, 249) # Inverted
+                            id = randint(0, ARUCO_DICTIONARY_SIZE - 1) # Inverted
                             marker, corners = get_marker(id, size = m_size, border_width = 0.0)
                             mask = marker[:,:,3]
                             mask = np.repeat(mask[..., np.newaxis], 3, axis = 2) / 255.0
