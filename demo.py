@@ -13,6 +13,49 @@ from yolox.data.data_augment import ValTransform
 from yolox.exp import get_exp
 from yolox.utils import fuse_model, postprocess
 import time
+from contextlib import contextmanager
+from collections import defaultdict
+
+class MeasureExecutionTime:
+    def __init__(self, ignore_first=True):
+        self.times = defaultdict(list)
+        self.current_section = None
+        self.ignore_first = ignore_first
+
+    @contextmanager
+    def __call__(self, section_name):
+        self.current_section = section_name
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            elapsed = time.time() - start_time
+            self.times[section_name].append(elapsed)
+            self.current_section = None
+
+    def print_all(self, title="Execution Times"):
+        print(f"\n{title}")
+        print("-" * 50)
+        max_name_length = max(len(name) for name in self.times.keys())
+        for section, times in self.times.items():
+            if self.ignore_first:
+                times = times[1:]
+            avg_time = sum(times) / len(times)
+            print(f"  {section:<{max_name_length}} {avg_time*1000:>8.1f} msec")
+        # print("-" * 50)
+        # total_time = sum(sum(times) for times in self.times.values())
+        # print(f"  {'total':<{max_name_length}} {total_time*1000:>8.1f} msec")
+
+    def reset(self):
+        self.times.clear()
+
+    def get_total_time(self):
+        return sum(sum(times) for times in self.times.values())
+
+
+deeparuco_timer = MeasureExecutionTime()
+opencv_timer = MeasureExecutionTime()
+
 
 norm = lambda x: (x - np.min(x)) / (np.max(x) - np.min(x) + 1e-9)
 
@@ -28,12 +71,13 @@ def process_markers(pic, detector, exp, args, refine_corners, decode_markers):
             img = img.half()
 
     # Detect markers
-    with torch.no_grad():
-        outputs = detector(img)
-        outputs = postprocess(
-            outputs, exp.num_classes, exp.test_conf,
-            exp.nmsthre, class_agnostic=True
-        )
+    with deeparuco_timer("detection"):
+        with torch.no_grad():
+            outputs = detector(img)
+            outputs = postprocess(
+                outputs, exp.num_classes, exp.test_conf,
+                exp.nmsthre, class_agnostic=True
+            )
 
     # Get detections
     if outputs[0] is None:
@@ -73,7 +117,8 @@ def process_markers(pic, detector, exp, args, refine_corners, decode_markers):
         crops = crops_ori.copy()
 
     # Refine corners
-    corners = refine_corners(np.array(crops)).numpy()
+    with deeparuco_timer("regression"):
+        corners = refine_corners(np.array(crops)).numpy()
 
     # Convert to (x, y) pairs
     if args.regressor.split("_")[1] == "hmap":
@@ -126,8 +171,9 @@ def process_markers(pic, detector, exp, args, refine_corners, decode_markers):
             cv2.imwrite(f"marker_{i}.png", markers[i] * 255.0)
 
     # Get ids from markers
-    decoder_out = np.round(decode_markers(np.array(markers)).numpy())
-    ids, dists = zip(*[find_id(out) for out in decoder_out])
+    with deeparuco_timer("decode"):
+        decoder_out = np.round(decode_markers(np.array(markers)).numpy())
+        ids, dists = zip(*[find_id(out) for out in decoder_out])
 
     # Visualize
     line_width = 2  # Line width for drawing detections
@@ -240,7 +286,6 @@ if __name__ == "__main__":
     detector.eval()
 
     # Load checkpoint
-    # ckpt_file = f"{model_dir}/{args.detector}.pth"
     ckpt_file = args.ckpt
     ckpt = torch.load(ckpt_file, map_location="cpu")
     detector.load_state_dict(ckpt["model"])
@@ -252,7 +297,6 @@ if __name__ == "__main__":
     decoder = load_model(f"{model_dir}/dec_new.h5")
 
     # Use graph execution for tf models
-
     @tf.function(reduce_retracing=True)
     def refine_corners(crops):
         return regressor(crops)
@@ -264,18 +308,34 @@ if __name__ == "__main__":
     # Load image
     pic = cv2.imread(args.pic_path)
 
-    # Run the function 10 times and measure execution time
-    execution_times = []
-    for i in range(10):
-        start_time = time.time()
-        result = process_markers(pic.copy(), detector, exp, args, refine_corners, decode_markers)
-        end_time = time.time()
-        if i > 0:  # Skip first run
-            execution_times.append(end_time - start_time)
+    # Run DeepAruco++ and measure time
+    num_iterations = 10  # Number of iterations for averaging
 
-    # Calculate and print average execution time
-    avg_time = sum(execution_times) / len(execution_times)
-    print(f"Average execution time (excluding first run): {avg_time:.4f} seconds")
+    # Main measurement runs
+    for i in range(num_iterations):
+        with deeparuco_timer("total"):
+            result = process_markers(pic.copy(), detector, exp, args, refine_corners, decode_markers)
+
+    # Print DeepAruco++ timing
+    deeparuco_timer.print_all("DeepAruco++ execution time")
+
+    # OpenCV ArUco detection timing comparison
+    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+    parameters = cv2.aruco.DetectorParameters()
+    detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+
+    # Main measurement runs
+    for i in range(num_iterations):
+        with opencv_timer("total"):
+            corners, ids, rejected = detector.detectMarkers(pic)
+
+    # Print OpenCV timing
+    opencv_timer.print_all("OpenCV execution time")
+
+    # Calculate and print speedup factor
+    deeparuco_total = deeparuco_timer.get_total_time() / num_iterations
+    opencv_total = opencv_timer.get_total_time() / num_iterations
+    print(f"\nSpeedup factor: {opencv_total/deeparuco_total:.2f}x")
 
     # Save the final result
     if result is not None:
