@@ -321,7 +321,7 @@ if __name__ == "__main__":
     pic = cv2.imread(args.pic_path)
 
     # Run DeepAruco++ and measure time
-    num_iterations = 10  # Number of iterations for averaging
+    num_iterations = 100  # Number of iterations for averaging
 
     # Main measurement runs
     for i in range(num_iterations):

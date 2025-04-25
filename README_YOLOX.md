@@ -22,6 +22,17 @@ python demo.py -f impl/yolox_tiny.py --ckpt ./models/yolox_tiny.pth -c \
     examples/flyingaruco_1.jpg ./output.png
 ```
 
+## Run demo with YOLOX model on Orin NX
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements_orin.txt
+
+python demo.py -f impl/yolox_tiny.py --ckpt ./models/yolox_tiny.pth --device gpu -c \
+    examples/flyingaruco_1.jpg ./output.png
+```
+
 ## Build dataset
 
 ```bash
