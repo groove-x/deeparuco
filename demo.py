@@ -72,9 +72,10 @@ def process_markers(pic, detector, exp, args, refine_corners, decode_markers):
                 img = img.half()
 
     # Detect markers
-    with deeparuco_timer("detection[torch]"):
-        with torch.no_grad():
+    with torch.no_grad():
+        with deeparuco_timer("detection[torch]"):
             outputs = detector(img)
+        with deeparuco_timer("postprocess[torch]"):
             outputs = postprocess(
                 outputs, exp.num_classes, exp.test_conf,
                 exp.nmsthre, class_agnostic=True
@@ -292,13 +293,19 @@ if __name__ == "__main__":
 
     # Load checkpoint
     ckpt_file = args.ckpt
-    ckpt = torch.load(ckpt_file, map_location="cpu")
+    ckpt = torch.load(ckpt_file, map_location=torch.device('cuda:0'))
     detector.load_state_dict(ckpt["model"])
 
     regressor = load_model(
         f"{model_dir}/{args.regressor}.h5",
         custom_objects={"weighted_loss": weighted_loss},
     )
+
+    # Check device placement of regressor
+    print("\nTensorFlow device information:")
+    print("Available devices:", tf.config.list_physical_devices())
+    print("GPU available:", tf.config.list_physical_devices('GPU'))
+
     decoder = load_model(f"{model_dir}/dec_new.h5")
 
     # Use graph execution for tf models
