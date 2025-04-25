@@ -18,7 +18,7 @@ pip-compile -o requirements_yolox.in YOLOX/requirements.txt
 ## Run demo with YOLOX model
 
 ```bash
-python demo.py -f impl/yolox_tiny.py --ckpt ./YOLOX/YOLOX_outputs/aruco_yolox_tiny/best_ckpt.pth -c \
+python demo.py -f impl/yolox_tiny.py --ckpt ./models/yolox_tiny.pth -c \
     examples/flyingaruco_1.jpg ./output.png
 ```
 

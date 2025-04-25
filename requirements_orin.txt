@@ -60,7 +60,7 @@ tzdata==2025.2
 urllib3==2.2.3
 werkzeug==3.0.6
 wrapt==1.14.1
--e git+https://github.com/Megvii-BaseDetection/YOLOX@d872c71bf63e1906ef7b7bb5a9d7a529c7a59e6a#egg=yolox&subdirectory=./YOLOX
+-e git+https://github.com/Megvii-BaseDetection/YOLOX@d872c71bf63e1906ef7b7bb5a9d7a529c7a59e6a#egg=yolox&subdirectory=../../../YOLOX
 zipp==3.20.2
 
 # torch==2.1.0a0+41361538.nv23.6  # installed on the system
