@@ -41,7 +41,7 @@ class MeasureExecutionTime:
             if self.ignore_first:
                 times = times[1:]
             avg_time = sum(times) / len(times)
-            print(f"  {section:<{max_name_length}} {avg_time*1000:>8.1f} msec")
+            print(f"  {section:<{max_name_length}} {avg_time*1000:>8.1f} msec ({len(times)} runs)")
         # print("-" * 50)
         # total_time = sum(sum(times) for times in self.times.values())
         # print(f"  {'total':<{max_name_length}} {total_time*1000:>8.1f} msec")
@@ -49,8 +49,12 @@ class MeasureExecutionTime:
     def reset(self):
         self.times.clear()
 
-    def get_total_time(self):
-        return sum(sum(times) for times in self.times.values())
+    def get_average_time(self, section_name):
+        assert section_name in self.times
+        if self.ignore_first:
+            return sum(self.times[section_name][1:]) / len(self.times[section_name][1:])
+        else:
+            return sum(self.times[section_name]) / len(self.times[section_name])
 
 
 deeparuco_timer = MeasureExecutionTime()
@@ -72,148 +76,150 @@ def process_markers(pic, detector, exp, args, refine_corners, decode_markers):
                 img = img.half()
 
     # Detect markers
-    with torch.no_grad():
-        with deeparuco_timer("detection[torch]"):
+    time.sleep(0.1)
+    with deeparuco_timer("detection[torch]"):
+        with torch.no_grad():
             outputs = detector(img)
-        with deeparuco_timer("postprocess[torch]"):
-            outputs = postprocess(
-                outputs, exp.num_classes, exp.test_conf,
-                exp.nmsthre, class_agnostic=True
-            )
+        print(outputs)
+        # with deeparuco_timer("postprocess[torch]"):
+        #     outputs = postprocess(
+        #         outputs, exp.num_classes, exp.test_conf,
+        #         exp.nmsthre, class_agnostic=True
+        #     )
 
-    # Get detections
-    if outputs[0] is None:
-        print("No markers detected")
-        return None
+    # # Get detections
+    # if outputs[0] is None:
+    #     print("No markers detected")
+    #     return None
 
-    with deeparuco_timer("postprocessing"):
-        detections = outputs[0].cpu()
-        ratio = min(exp.test_size[0] / pic.shape[0], exp.test_size[1] / pic.shape[1])
-        bboxes = detections[:, 0:4]
-        bboxes /= ratio  # Scale back to original image size
+    # with deeparuco_timer("postprocessing"):
+    #     detections = outputs[0].cpu()
+    #     ratio = min(exp.test_size[0] / pic.shape[0], exp.test_size[1] / pic.shape[1])
+    #     bboxes = detections[:, 0:4]
+    #     bboxes /= ratio  # Scale back to original image size
 
-        # Expanded bboxes
-        xyxy = [
-            [
-                int(max(det[0] - (0.2 * (det[2] - det[0]) + 0.5), 0)),
-                int(max(det[1] - (0.2 * (det[3] - det[1]) + 0.5), 0)),
-                int(min(det[2] + (0.2 * (det[2] - det[0]) + 0.5), pic.shape[1] - 1)),
-                int(min(det[3] + (0.2 * (det[3] - det[1]) + 0.5), pic.shape[0] - 1)),
-            ]
-            for det in bboxes
-        ]
+    #     # Expanded bboxes
+    #     xyxy = [
+    #         [
+    #             int(max(det[0] - (0.2 * (det[2] - det[0]) + 0.5), 0)),
+    #             int(max(det[1] - (0.2 * (det[3] - det[1]) + 0.5), 0)),
+    #             int(min(det[2] + (0.2 * (det[2] - det[0]) + 0.5), pic.shape[1] - 1)),
+    #             int(min(det[3] + (0.2 * (det[3] - det[1]) + 0.5), pic.shape[0] - 1)),
+    #         ]
+    #         for det in bboxes
+    #     ]
 
-        # Crop and normalize
-        crops_ori = [
-            cv2.resize(pic[det[1] : det[3], det[0] : det[2]], (64, 64)) for det in xyxy
-        ]
+    #     # Crop and normalize
+    #     crops_ori = [
+    #         cv2.resize(pic[det[1] : det[3], det[0] : det[2]], (64, 64)) for det in xyxy
+    #     ]
 
-        # Output crops
-        if args.get_crops:
-            for i in range(len(crops_ori)):
-                cv2.imwrite(f"crop_{i}.png", crops_ori[i])
+    #     # Output crops
+    #     if args.get_crops:
+    #         for i in range(len(crops_ori)):
+    #             cv2.imwrite(f"crop_{i}.png", crops_ori[i])
 
-        # Normalize (if not baseline!)
-        if args.regressor != "reg_baseline":
-            crops = [norm(crop) for crop in crops_ori]
-        else:
-            crops = crops_ori.copy()
+    #     # Normalize (if not baseline!)
+    #     if args.regressor != "reg_baseline":
+    #         crops = [norm(crop) for crop in crops_ori]
+    #     else:
+    #         crops = crops_ori.copy()
 
-    # Refine corners
-    with deeparuco_timer("regression[tf]"):
-        corners = refine_corners(np.array(crops)).numpy()
+    # # Refine corners
+    # with deeparuco_timer("regression[tf]"):
+    #     corners = refine_corners(np.array(crops)).numpy()
 
-    with deeparuco_timer("keypoint_detection"):
-        # Convert to (x, y) pairs
-        if args.regressor.split("_")[1] == "hmap":
-            # Output hmaps
-            if args.get_heatmaps:
-                for i in range(corners.shape[0]):
-                    cv2.imwrite(f"map_{i}.png", norm(corners[i]) * 255)
+    # with deeparuco_timer("keypoint_detection"):
+    #     # Convert to (x, y) pairs
+    #     if args.regressor.split("_")[1] == "hmap":
+    #         # Output hmaps
+    #         if args.get_heatmaps:
+    #             for i in range(corners.shape[0]):
+    #                 cv2.imwrite(f"map_{i}.png", norm(corners[i]) * 255)
 
-            # Instantiate keypoint detector
-            area = 75  # <- Expected area of the blobs to detect
-            kp_params = cv2.SimpleBlobDetector_Params()
-            if area > 0:
-                kp_params.filterByArea = True
-                kp_params.minArea = area * 0.8
-                kp_params.maxArea = area * 1.2
-            kp_detector = cv2.SimpleBlobDetector_create(kp_params)
+    #         # Instantiate keypoint detector
+    #         area = 75  # <- Expected area of the blobs to detect
+    #         kp_params = cv2.SimpleBlobDetector_Params()
+    #         if area > 0:
+    #             kp_params.filterByArea = True
+    #             kp_params.minArea = area * 0.8
+    #             kp_params.maxArea = area * 1.2
+    #         kp_detector = cv2.SimpleBlobDetector_create(kp_params)
 
-            corners = [
-                [(x, y) for x, y in zip(*pos_from_heatmap(pred, kp_detector))]
-                for pred in corners
-            ]
+    #         corners = [
+    #             [(x, y) for x, y in zip(*pos_from_heatmap(pred, kp_detector))]
+    #             for pred in corners
+    #         ]
 
-            # Discard detections if less than 4 corners
-            keep = [len(cs) == 4 for cs in corners]
-            xyxy, crops_ori, corners = zip(
-                *[
-                    (det, crop, cs)
-                    for det, crop, cs, k in zip(xyxy, crops_ori, corners, keep)
-                    if k == True
-                ]
-            )
+    #         # Discard detections if less than 4 corners
+    #         keep = [len(cs) == 4 for cs in corners]
+    #         xyxy, crops_ori, corners = zip(
+    #             *[
+    #                 (det, crop, cs)
+    #                 for det, crop, cs, k in zip(xyxy, crops_ori, corners, keep)
+    #                 if k == True
+    #             ]
+    #         )
 
-        else:
-            corners = [[(pred[i], pred[i + 1]) for i in range(0, 8, 2)] for pred in corners]
+    #     else:
+    #         corners = [[(pred[i], pred[i + 1]) for i in range(0, 8, 2)] for pred in corners]
 
-        # Ensure corners are ordered
-        corners = [
-            ordered_corners([c[0] for c in cs], [c[1] for c in cs]) for cs in corners
-        ]
+    #     # Ensure corners are ordered
+    #     corners = [
+    #         ordered_corners([c[0] for c in cs], [c[1] for c in cs]) for cs in corners
+    #     ]
 
-        # Extract markers from corners (if 4 corners available)
-        markers = []
-        for crop, cs in zip(crops_ori, corners):
-            marker = marker_from_corners(crop, cs, 32)
-            # Grayscale and normalize
-            markers.append(norm(cv2.cvtColor(marker, cv2.COLOR_BGR2GRAY)))
+    #     # Extract markers from corners (if 4 corners available)
+    #     markers = []
+    #     for crop, cs in zip(crops_ori, corners):
+    #         marker = marker_from_corners(crop, cs, 32)
+    #         # Grayscale and normalize
+    #         markers.append(norm(cv2.cvtColor(marker, cv2.COLOR_BGR2GRAY)))
 
-    with deeparuco_timer("visualization1"):
-        if args.get_markers:
-            for i in range(len(markers)):
-                cv2.imwrite(f"marker_{i}.png", markers[i] * 255.0)
+    # with deeparuco_timer("visualization1"):
+    #     if args.get_markers:
+    #         for i in range(len(markers)):
+    #             cv2.imwrite(f"marker_{i}.png", markers[i] * 255.0)
 
-    # Get ids from markers
-    with deeparuco_timer("decode[tf]"):
-        decoder_out = np.round(decode_markers(np.array(markers)).numpy())
-        ids, dists = zip(*[find_id(out) for out in decoder_out])
+    # # Get ids from markers
+    # with deeparuco_timer("decode[tf]"):
+    #     decoder_out = np.round(decode_markers(np.array(markers)).numpy())
+    #     ids, dists = zip(*[find_id(out) for out in decoder_out])
 
-    # Visualize
-    with deeparuco_timer("visualization2"):
-        line_width = 2  # Line width for drawing detections
-        for cs, det, id, dist in zip(corners, xyxy, ids, dists):
-            # Pack 2-by-2
-            cs = [(cs[i], cs[i + 1]) for i in range(0, 8, 2)]
+    # # Visualize
+    # with deeparuco_timer("visualization2"):
+    #     line_width = 2  # Line width for drawing detections
+    #     for cs, det, id, dist in zip(corners, xyxy, ids, dists):
+    #         # Pack 2-by-2
+    #         cs = [(cs[i], cs[i + 1]) for i in range(0, 8, 2)]
 
-            color = (0, 255, 0)
-            if dist >= args.threshold:
-                color = (0, 0, 255)
+    #         color = (0, 255, 0)
+    #         if dist >= args.threshold:
+    #             color = (0, 0, 255)
 
-            width = det[2] - det[0]
-            height = det[3] - det[1]
+    #         width = det[2] - det[0]
+    #         height = det[3] - det[1]
 
-            for i in range(0, 4):
-                p1 = (int(det[0] + cs[i][0] * width), int(det[1] + cs[i][1] * height))
-                p2 = (
-                    int(det[0] + cs[(i + 1) % 4][0] * width),
-                    int(det[1] + cs[(i + 1) % 4][1] * height),
-                )
-                pic = cv2.line(pic, p1, p2, color, line_width, cv2.LINE_AA)
+    #         for i in range(0, 4):
+    #             p1 = (int(det[0] + cs[i][0] * width), int(det[1] + cs[i][1] * height))
+    #             p2 = (
+    #                 int(det[0] + cs[(i + 1) % 4][0] * width),
+    #                 int(det[1] + cs[(i + 1) % 4][1] * height),
+    #             )
+    #             pic = cv2.line(pic, p1, p2, color, line_width, cv2.LINE_AA)
 
-            pic = cv2.putText(
-                pic,
-                str(id),
-                (det[0] + int(width / 2) - 20, det[1] + int(height / 2) + 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.75,
-                color,
-                line_width,
-                cv2.LINE_AA,
-            )
+    #         pic = cv2.putText(
+    #             pic,
+    #             str(id),
+    #             (det[0] + int(width / 2) - 20, det[1] + int(height / 2) + 5),
+    #             cv2.FONT_HERSHEY_SIMPLEX,
+    #             0.75,
+    #             color,
+    #             line_width,
+    #             cv2.LINE_AA,
+    #         )
 
-    return pic
+    # return pic
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="DeepArUco v2 demo tool.")
@@ -301,32 +307,34 @@ if __name__ == "__main__":
         custom_objects={"weighted_loss": weighted_loss},
     )
 
-    # Check device placement of regressor
-    print("\nTensorFlow device information:")
-    print("Available devices:", tf.config.list_physical_devices())
-    print("GPU available:", tf.config.list_physical_devices('GPU'))
+    # # Check device placement of regressor
+    # print("\nTensorFlow device information:")
+    # print("Available devices:", tf.config.list_physical_devices())
+    # print("GPU available:", tf.config.list_physical_devices('GPU'))
 
-    decoder = load_model(f"{model_dir}/dec_new.h5")
+    # decoder = load_model(f"{model_dir}/dec_new.h5")
 
     # Use graph execution for tf models
-    @tf.function(reduce_retracing=True)
-    def refine_corners(crops):
-        return regressor(crops)
+    # @tf.function(reduce_retracing=True)
+    # def refine_corners(crops):
+    #     return regressor(crops)
 
-    @tf.function(reduce_retracing=True)
-    def decode_markers(markers):
-        return decoder(markers)
+    # @tf.function(reduce_retracing=True)
+    # def decode_markers(markers):
+    #     return decoder(markers)
 
     # Load image
     pic = cv2.imread(args.pic_path)
 
     # Run DeepAruco++ and measure time
-    num_iterations = 100  # Number of iterations for averaging
+    num_iterations = 500  # Number of iterations for averaging
 
     # Main measurement runs
     for i in range(num_iterations):
         with deeparuco_timer("total"):
-            result = process_markers(pic.copy(), detector, exp, args, refine_corners, decode_markers)
+            with deeparuco_timer("pic_copy"):
+                pic_copy = pic.copy()
+            result = process_markers(pic_copy, detector, exp, args, None, None)
 
     # Print DeepAruco++ timing
     deeparuco_timer.print_all("DeepAruco++ execution time")
@@ -345,8 +353,8 @@ if __name__ == "__main__":
     opencv_timer.print_all("OpenCV execution time")
 
     # Calculate and print speedup factor
-    deeparuco_total = deeparuco_timer.get_total_time() / num_iterations
-    opencv_total = opencv_timer.get_total_time() / num_iterations
+    deeparuco_total = deeparuco_timer.get_average_time('total')
+    opencv_total = opencv_timer.get_average_time('total')
     print(f"\nSpeedup factor: {opencv_total/deeparuco_total:.2f}x")
 
     # Save the final result
