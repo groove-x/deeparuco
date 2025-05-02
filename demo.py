@@ -59,7 +59,7 @@ opencv_timer = MeasureExecutionTime()
 
 norm = lambda x: (x - np.min(x)) / (np.max(x) - np.min(x) + 1e-9)
 
-def process_markers(pic, detector, exp, args, refine_corners, decode_markers):
+def process_markers(pic, detector, detector_decoder, exp, args, refine_corners, decode_markers):
     # Prepare image for YOLOX
     with deeparuco_timer("preprocessing"):
         preproc = ValTransform(legacy=False)
@@ -75,6 +75,9 @@ def process_markers(pic, detector, exp, args, refine_corners, decode_markers):
     with torch.no_grad():
         with deeparuco_timer("detection[torch]"):
             outputs = detector(img)
+        if detector_decoder is not None:
+            with deeparuco_timer("detector_decoder[torch]"):
+                outputs = detector_decoder(outputs, dtype=outputs.type())
         with deeparuco_timer("postprocess[torch]"):
             outputs = postprocess(
                 outputs, exp.num_classes, exp.test_conf,
@@ -270,6 +273,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Adopting mix precision evaluating.",
     )
+    parser.add_argument(
+        "--trt",
+        dest="trt",
+        default=False,
+        action="store_true",
+        help="Using TensorRT model for testing.",
+    )
     args = parser.parse_args()
 
     # Paths
@@ -293,8 +303,24 @@ if __name__ == "__main__":
 
     # Load checkpoint
     ckpt_file = args.ckpt
-    ckpt = torch.load(ckpt_file, map_location=torch.device('cuda:0'))
-    detector.load_state_dict(ckpt["model"])
+    if args.trt:
+        trt_file = ckpt_file
+        assert os.path.exists(
+            trt_file
+        ), "TensorRT model is not found!\n Run python3 tools/trt.py first!"
+        detector.head.decode_in_inference = False
+        detector_decoder = detector.head.decode_outputs
+        print("Using TensorRT to inference")
+        from torch2trt import TRTModule
+        model_trt = TRTModule()
+        model_trt.load_state_dict(torch.load(trt_file))
+        x = torch.ones(1, 3, exp.test_size[0], exp.test_size[1]).cuda()
+        detector(x)
+        detector = model_trt
+    else:
+        ckpt = torch.load(ckpt_file, map_location=torch.device('cuda:0'))
+        detector.load_state_dict(ckpt["model"])
+        detector_decoder = None
 
     regressor = load_model(
         f"{model_dir}/{args.regressor}.h5",
@@ -302,10 +328,6 @@ if __name__ == "__main__":
     )
 
     # Check device placement of regressor
-    print("\nTensorFlow device information:")
-    print("Available devices:", tf.config.list_physical_devices())
-    print("GPU available:", tf.config.list_physical_devices('GPU'))
-
     decoder = load_model(f"{model_dir}/dec_new.h5")
 
     # Use graph execution for tf models
